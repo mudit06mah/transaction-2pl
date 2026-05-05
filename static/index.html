@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2PC Distributed Transaction Demo</title>
+    <style>
+        body {
+            background-color: #fffff0; /* Very minimalistic off-white/cream */
+            color: #000;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            font-weight: normal;
+            border-bottom: 1px solid #000;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .container {
+            display: flex;
+            justify-content: space-between;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .panel {
+            border: 1px solid #000;
+            background-color: #fff;
+            padding: 15px;
+            width: 31%;
+            box-sizing: border-box;
+        }
+        .panel h2 {
+            margin-top: 0;
+            font-size: 1.1em;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 5px;
+        }
+        .participant {
+            border: 1px dashed #000;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        .participant.failing {
+            background-color: #fff0f0;
+            border-color: #f00;
+        }
+        .account {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            font-size: 0.95em;
+        }
+        .pending-text {
+            color: #666;
+            font-size: 0.85em;
+            font-style: italic;
+        }
+        .locked-badge {
+            background: #ffeb3b;
+            color: #000;
+            font-size: 0.7em;
+            padding: 2px 5px;
+            border: 1px solid #000;
+            margin-left: 5px;
+            font-weight: bold;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+        input {
+            width: 100%;
+            padding: 6px;
+            box-sizing: border-box;
+            border: 1px solid #000;
+        }
+        button {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #000;
+            background: #eee;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background: #ddd;
+        }
+        .btn-danger {
+            background: #fee;
+        }
+        .btn-danger:hover {
+            background: #fcc;
+        }
+        .logs {
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85em;
+            background: #fafafa;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+        .log-entry {
+            margin-bottom: 4px;
+            border-bottom: 1px dotted #eee;
+            padding-bottom: 2px;
+        }
+        .log-error { color: #d00; }
+        .log-success { color: #080; }
+        .log-warning { color: #c60; font-weight: bold;}
+    </style>
+</head>
+<body>
+    <h1>2PC Transaction Coordinator</h1>
+    <div class="container">
+        <!-- Participants Panel -->
+        <div class="panel">
+            <h2>Nodes (State & Locks)</h2>
+            <div id="participants-container">Loading...</div>
+        </div>
+
+        <!-- Transfer Panel -->
+        <div class="panel">
+            <h2>Transfer Funds</h2>
+            <div class="form-group">
+                <label>From Account:</label>
+                <input type="text" id="from_account" value="A">
+            </div>
+            <div class="form-group">
+                <label>To Account:</label>
+                <input type="text" id="to_account" value="B">
+            </div>
+            <div class="form-group">
+                <label>Amount:</label>
+                <input type="number" id="amount" value="50" min="1">
+            </div>
+            <button class="btn" onclick="submitTransfer()">Initiate Transfer</button>
+            <p style="font-size: 0.85em; color: #555; margin-top: 15px;">
+                <i>Transactions now feature a 10-second delay between Phase 1 and Phase 2. Try submitting a second transaction while the first is pending to see Strict 2PL (Locks) in action!</i>
+            </p>
+        </div>
+
+        <!-- Logs Panel -->
+        <div class="panel">
+            <h2>Protocol Logs</h2>
+            <div class="logs" id="logs-container"></div>
+        </div>
+    </div>
+
+    <script>
+        let lastLogCount = 0;
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/status');
+                const data = await res.json();
+                renderParticipants(data.participants);
+                renderLogs(data.logs);
+            } catch (e) {
+                console.error("Error fetching status", e);
+            }
+        }
+
+        function renderParticipants(participants) {
+            const container = document.getElementById('participants-container');
+            container.innerHTML = '';
+            for (const [url, state] of Object.entries(participants)) {
+                if (state.error) {
+                    container.innerHTML += `<div class="participant failing">
+                        <strong>${url} - OFFLINE</strong>
+                    </div>`;
+                    continue;
+                }
+                
+                let accountsHtml = '';
+                for (const [acc, bal] of Object.entries(state.balances)) {
+                    // Check for pending transactions to visualize 2PL Locks
+                    let pendingStr = "";
+                    for (const txId in state.pending_transactions) {
+                        for (const op of state.pending_transactions[txId]) {
+                            if (op.account === acc) {
+                                let sign = op.type === "debit" ? "-" : "+";
+                                pendingStr += `<span class="pending-text"> (Pending: ${sign}$${op.amount})</span>`;
+                            }
+                        }
+                    }
+                    
+                    let lockBadge = state.locked_accounts.includes(acc) ? `<span class="locked-badge">LOCKED</span>` : '';
+                    
+                    accountsHtml += `<div class="account"><span>Account ${acc}${lockBadge}</span><span>$${bal}${pendingStr}</span></div>`;
+                }
+                
+                let btnText = state.simulate_failure ? "Clear Failure Flag" : "Simulate Node Crash";
+                let btnClass = state.simulate_failure ? "btn-danger" : "";
+                
+                container.innerHTML += `
+                    <div class="participant ${state.simulate_failure ? 'failing' : ''}">
+                        <div style="font-weight:bold; margin-bottom:5px;">${url}</div>
+                        ${accountsHtml}
+                        <button class="${btnClass}" onclick="toggleFailure('${url}')">${btnText}</button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderLogs(logs) {
+            if (logs.length === lastLogCount) return;
+            const container = document.getElementById('logs-container');
+            container.innerHTML = '';
+            logs.forEach(log => {
+                let typeClass = '';
+                if (log.includes('COMMITTED')) typeClass = 'log-success';
+                else if (log.includes('ABORT') || log.includes('Failed')) typeClass = 'log-error';
+                else if (log.includes('delay') || log.includes('Simulating')) typeClass = 'log-warning';
+                
+                container.innerHTML += `<div class="log-entry ${typeClass}">${log}</div>`;
+            });
+            container.scrollTop = container.scrollHeight;
+            lastLogCount = logs.length;
+        }
+
+        async function toggleFailure(url) {
+            await fetch('/simulate_failure', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url: url})
+            });
+            fetchStatus();
+        }
+
+        async function submitTransfer() {
+            const payload = {
+                transaction_id: "tx-" + Math.floor(Math.random() * 10000),
+                from_account: document.getElementById('from_account').value,
+                to_account: document.getElementById('to_account').value,
+                amount: parseInt(document.getElementById('amount').value)
+            };
+            
+            try {
+                // Not awaiting this or disabling the button so user can spam it to test concurrency
+                fetch('/transaction', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+            } catch (e) {
+                console.error(e);
+            }
+            
+            setTimeout(fetchStatus, 500); // Quick fetch to show new logs
+        }
+
+        setInterval(fetchStatus, 1000);
+        fetchStatus();
+    </script>
+</body>
+</html>
