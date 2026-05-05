@@ -1,4 +1,6 @@
 # Interactive Two-Phase Commit (2PC) & Strict 2PL Demo
+<img width="1600" height="748" alt="image" src="https://github.com/user-attachments/assets/f4761804-4d4d-4c2c-936c-aa83783aeb88" />
+
 
 This project provides a fully interactive, academic demonstration of the **Two-Phase Commit (2PC)** distributed transaction protocol, paired with **Strict Two-Phase Locking (2PL)**. It is built using Python (FastAPI) and a minimalistic vanilla HTML/CSS/JS frontend.
 
