@@ -4,6 +4,9 @@
 
 This project provides a fully interactive, academic demonstration of the **Two-Phase Commit (2PC)** distributed transaction protocol, paired with **Strict Two-Phase Locking (2PL)**. It is built using Python (FastAPI) and a minimalistic vanilla HTML/CSS/JS frontend.
 
+* Hello
+* Bello
+
 ## Key Features
 
 - **Distributed Architecture:** Features a central Coordinator and multiple distinct Participant nodes communicating via asynchronous HTTP requests.
